@@ -41,7 +41,7 @@ class MainFrame extends JFrame {
 
         filterPanel = new FilterPanel();
         resultsPanel = new ResultsPanel();
-        statusBar = new JLabel("Ready");
+        statusBar = new JLabel("Ready"); 
 
         add(filterPanel, BorderLayout.NORTH);
         add(resultsPanel.getScrollPane(), BorderLayout.CENTER);

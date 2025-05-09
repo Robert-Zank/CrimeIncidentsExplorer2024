@@ -34,6 +34,13 @@ class MainFrame extends JFrame {
         JMenuBar menuBar = new JMenuBar();
         JMenu reportMenu = new JMenu("Reports");
         JMenuItem topNBlocks = new JMenuItem("Top N Blocks");
+        JMenuItem topNOffenses = new JMenuItem("Top N Offenses");
+        reportMenu.add(topNOffenses);
+        topNOffenses.addActionListener(e -> showTopNOffenses());
+
+        JMenuItem avgDuration = new JMenuItem("Avg Duration by Offense");
+        reportMenu.add(avgDuration);
+        avgDuration.addActionListener(e -> showAvgDurationByOffense());
         reportMenu.add(topNBlocks);
         menuBar.add(reportMenu);
         setJMenuBar(menuBar);
@@ -144,6 +151,71 @@ class MainFrame extends JFrame {
             statusBar.setText("Error occurred.");
         }
     }
+    
+    private void showTopNOffenses() {
+        String input = JOptionPane.showInputDialog(this, "Enter N:", "5");
+        if (input == null) return;
+        int n;
+        try { n = Integer.parseInt(input.trim()); }
+        catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "Invalid number: " + input,
+                "Input Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String sql =
+          "SELECT offense, cnt FROM (" +
+          "  SELECT o.offense_code AS offense," +
+          "         COUNT(*) AS cnt," +
+          "         RANK() OVER (ORDER BY COUNT(*) DESC) AS rnk" +
+          "  FROM fact_incident f" +
+          "  JOIN dim_offense o ON f.offense_code = o.offense_code" +
+          "  GROUP BY o.offense_code" +
+          ") t WHERE rnk <= ? ORDER BY cnt DESC";
+
+        try (Connection conn = DBConnector.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+          ps.setInt(1, n);
+          try (ResultSet rs = ps.executeQuery()) {
+            DefaultTableModel model = DBUtil.buildTableModel(rs);
+            resultsPanel.setTableModel(model);
+            statusBar.setText("Top " + n + " offenses displayed.");
+          }
+        } catch (Exception e) {
+          e.printStackTrace();
+          JOptionPane.showMessageDialog(this,
+            "Error fetching Top N Offenses: " + e.getMessage(),
+            "Database Error", JOptionPane.ERROR_MESSAGE);
+          statusBar.setText("Error occurred.");
+        }
+    }
+
+    private void showAvgDurationByOffense() {
+        String sql =
+          "SELECT o.offense_code    AS Offense, " +
+          "       ROUND(AVG(TIMESTAMPDIFF(MINUTE, f.start_dt, f.end_dt)),2) AS AvgDurationMins " +
+          "  FROM fact_incident f " +
+          "  JOIN dim_offense    o ON f.offense_code = o.offense_code " +
+          " GROUP BY o.offense_code " +
+          " ORDER BY AvgDurationMins DESC";
+
+        try (Connection conn = DBConnector.getConnection();
+             Statement stmt    = conn.createStatement();
+             ResultSet rs      = stmt.executeQuery(sql)) {
+
+            DefaultTableModel model = DBUtil.buildTableModel(rs);
+            resultsPanel.setTableModel(model);
+            statusBar.setText("Average duration by offense displayed.");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this,
+                "Error fetching Avg Duration: " + e.getMessage(),
+                "Database Error", JOptionPane.ERROR_MESSAGE);
+            statusBar.setText("Error occurred.");
+        }
+    }
+
 }
 
 class FilterPanel extends JPanel {

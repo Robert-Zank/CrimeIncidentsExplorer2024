@@ -77,7 +77,7 @@ class MainFrame extends JFrame {
             "WHERE 1=1"
         );
         List<Object> params = new ArrayList<>();
-        if (crit.getFromDate() != null) {
+        if (crit.getFromDate() != null) { 
             sql.append(" AND f.report_dt >= ?");
             params.add(new Timestamp(crit.getFromDate().getTime()));
         }

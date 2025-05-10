@@ -8,8 +8,8 @@ import java.io.FileInputStream;
 import java.sql.*;
 import java.text.DateFormatSymbols;
 import java.util.*;
-import java.util.Date;
 import java.util.List;
+import java.util.Date;
 
 // JFreeChart imports (ensure jars on classpath)
 import org.jfree.chart.ChartFactory;
@@ -18,20 +18,29 @@ import org.jfree.chart.JFreeChart;
 import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.data.category.DefaultCategoryDataset;
 
+/**
+ * Entry point for the Crime Incidents Explorer application.
+ * Sets up the system look-and-feel and initializes the main frame UI.
+ */
 public class CrimeIncidentsApp {
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             try {
+                // Use system look-and-feel for native appearance
                 UIManager.setLookAndFeel(
                     UIManager.getSystemLookAndFeelClassName()
                 );
             } catch (Exception ignored) {
+                // If setting L&F fails, continue with default
             }
             new MainFrame().initUI();
         });
     }
 }
 
+/**
+ * Main application window containing menu, filter panel, results panel, and status bar.
+ */
 class MainFrame extends JFrame {
     private FilterPanel filterPanel;
     private ResultsPanel resultsPanel;
@@ -39,24 +48,29 @@ class MainFrame extends JFrame {
     private JProgressBar progressBar;
 
     public MainFrame() {
-        super("Crime Incidents Explorer");
+        super("Crime Incidents Explorer"); // Window title
     }
 
+    /**
+     * Builds and displays the UI components.
+     */
     public void initUI() {
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout(5, 5));
 
-        // Build menu
+        // Menu bar
         setJMenuBar(createMenuBar());
 
-        // Panels
+        // Search filter controls at top
         filterPanel = new FilterPanel();
         filterPanel.addSearchListener(e -> onSearch());
         add(filterPanel, BorderLayout.NORTH);
 
+        // Results table in center
         resultsPanel = new ResultsPanel();
         add(resultsPanel.getScrollPane(), BorderLayout.CENTER);
 
+        // Status bar with progress indicator at bottom
         JPanel statusPanel = new JPanel(new BorderLayout());
         statusLabel = new JLabel("Ready");
         progressBar = new JProgressBar();
@@ -66,13 +80,17 @@ class MainFrame extends JFrame {
         add(statusPanel, BorderLayout.SOUTH);
 
         setSize(1000, 600);
-        setLocationRelativeTo(null);
+        setLocationRelativeTo(null); // Center window
         setVisible(true);
     }
 
+    /**
+     * Creates the application menu bar with report and history menus.
+     */
     private JMenuBar createMenuBar() {
         JMenuBar menuBar = new JMenuBar();
 
+        // Reports menu
         JMenu reportMenu = new JMenu("Reports");
         reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
         reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
@@ -80,6 +98,7 @@ class MainFrame extends JFrame {
         reportMenu.add(createMenuItem("Incidents per Month Chart", e -> showIncidentsPerMonthChart()));
         menuBar.add(reportMenu);
 
+        // History menu
         JMenu historyMenu = new JMenu("History");
         historyMenu.add(createMenuItem("View Query History", e -> fetchQueryHistory()));
         menuBar.add(historyMenu);
@@ -87,14 +106,23 @@ class MainFrame extends JFrame {
         return menuBar;
     }
 
+    /**
+     * Helper to create menu items.
+     */
     private JMenuItem createMenuItem(String title, ActionListener action) {
         JMenuItem item = new JMenuItem(title);
         item.addActionListener(action);
         return item;
     }
 
+    /**
+     * Performs a database search asynchronously and updates the results table.
+     * @param sql       The SQL query or prepared statement
+     * @param params    Parameters for prepared statements
+     * @param prepared  Whether to use PreparedStatement
+     */
     private void performSearch(String sql, List<Object> params, boolean prepared) {
-        logQuery(sql);
+        logQuery(sql); // Save query to history table
         statusLabel.setText("Searching...");
         progressBar.setIndeterminate(true);
         progressBar.setVisible(true);
@@ -124,8 +152,9 @@ class MainFrame extends JFrame {
             @Override
             protected void done() {
                 try {
-                    resultsPanel.setTableModel(get());
-                    statusLabel.setText(get().getRowCount() + " records found.");
+                    DefaultTableModel model = get();
+                    resultsPanel.setTableModel(model);
+                    statusLabel.setText(model.getRowCount() + " records found.");
                 } catch (Exception e) {
                     JOptionPane.showMessageDialog(
                         MainFrame.this,
@@ -141,6 +170,9 @@ class MainFrame extends JFrame {
         }.execute();
     }
 
+    /**
+     * Logs the executed SQL text and timestamp into the query_history table.
+     */
     private void logQuery(String sql) {
         String insert = "INSERT INTO query_history(sql_text, executed_at) VALUES(?, ?)";
         try (Connection conn = DBConnector.getConnection();
@@ -149,9 +181,13 @@ class MainFrame extends JFrame {
             ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
             ps.executeUpdate();
         } catch (Exception ignored) {
+            // Non-critical logging failure
         }
     }
 
+    /**
+     * Builds and executes the main search query based on filter criteria.
+     */
     private void onSearch() {
         FilterCriteria c = filterPanel.getCriteria();
         StringBuilder sb = new StringBuilder(
@@ -165,6 +201,7 @@ class MainFrame extends JFrame {
             "LEFT JOIN dim_block b ON f.block=b.block WHERE 1=1"
         );
         List<Object> params = new ArrayList<>();
+        // Date range filtering
         if (c.getFromDate() != null) {
             sb.append(" AND f.report_dt>=?");
             params.add(new Timestamp(c.getFromDate().getTime()));
@@ -173,13 +210,18 @@ class MainFrame extends JFrame {
             sb.append(" AND f.report_dt<=?");
             params.add(new Timestamp(c.getToDate().getTime()));
         }
+        // Multi-select filters (shift, method, offense, block)
         applyMultiFilter(sb, params, c.getShifts(),   "s.shift_code");
         applyMultiFilter(sb, params, c.getMethods(),  "m.method_code");
         applyMultiFilter(sb, params, c.getOffenses(), "o.offense_code");
         applyMultiFilter(sb, params, c.getBlocks(),   "b.block");
         performSearch(sb.toString(), params, true);
     }
-
+    
+    /**
+     * Prompts the user for a number N and retrieves the top N blocks by incident count.
+     * Uses a prepared statement with a LIMIT ? parameter.
+     */
     private void fetchTopNBlocks() {
         int n = promptForN("blocks");
         if (n < 1) return;
@@ -190,6 +232,10 @@ class MainFrame extends JFrame {
         performSearch(sql, Collections.singletonList(n), true);
     }
 
+    /**
+     * Prompts the user for a number N and retrieves the top N offense codes by incident count.
+     * Uses a prepared statement with a LIMIT ? parameter.
+     */
     private void fetchTopNOffenses() {
         int n = promptForN("offenses");
         if (n < 1) return;
@@ -200,6 +246,10 @@ class MainFrame extends JFrame {
         performSearch(sql, Collections.singletonList(n), true);
     }
 
+    /**
+     * Calculates the average incident duration (in minutes) for each offense type.
+     * Executes a SELECT with AVG(TIMESTAMPDIFF(...)) to compute the average.
+     */
     private void fetchAvgDuration() {
         String sql =
             "SELECT o.offense_code offense, " +
@@ -209,6 +259,10 @@ class MainFrame extends JFrame {
         performSearch(sql, Collections.emptyList(), false);
     }
 
+    /**
+     * Fetches the history of all previously executed queries from the query_history table.
+     * Displays the most recent entries first.
+     */
     private void fetchQueryHistory() {
         performSearch(
             "SELECT id, sql_text, executed_at FROM query_history ORDER BY executed_at DESC",
@@ -216,6 +270,10 @@ class MainFrame extends JFrame {
         );
     }
 
+
+    /**
+     * Launches a line chart showing monthly incident counts per offense.
+     */
     private void showIncidentsPerMonthChart() {
         FilterCriteria c = filterPanel.getCriteria();
         Timestamp t1 = new Timestamp(c.getFromDate().getTime());
@@ -229,17 +287,17 @@ class MainFrame extends JFrame {
                     "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
                     "WHERE f.report_dt>=? AND f.report_dt<=? " +
                     "GROUP BY o.offense_code, MONTH(f.report_dt) ORDER BY m";
-                try (Connection conn=DBConnector.getConnection();
-                     PreparedStatement ps=conn.prepareStatement(q)) {
+                try (Connection conn = DBConnector.getConnection();
+                     PreparedStatement ps = conn.prepareStatement(q)) {
                     ps.setTimestamp(1, t1);
                     ps.setTimestamp(2, t2);
-                    try (ResultSet rs=ps.executeQuery()) {
+                    try (ResultSet rs = ps.executeQuery()) {
                         while (rs.next()) {
                             String off = rs.getString("offense");
                             int m = rs.getInt("m");
-                            ds.addValue(rs.getLong("cnt"), off,
-                                new DateFormatSymbols().getMonths()[m-1]
-                            );
+                            long cnt = rs.getLong("cnt");
+                            String month = new DateFormatSymbols().getMonths()[m - 1];
+                            ds.addValue(cnt, off, month);
                         }
                     }
                 }
@@ -257,23 +315,29 @@ class MainFrame extends JFrame {
                     JFrame f = new JFrame("Monthly Trends");
                     f.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
                     f.add(new ChartPanel(ch));
-                    f.pack(); f.setLocationRelativeTo(MainFrame.this);
+                    f.pack();
+                    f.setLocationRelativeTo(MainFrame.this);
                     f.setVisible(true);
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(MainFrame.this,
+                    JOptionPane.showMessageDialog(
+                        MainFrame.this,
                         "Chart error: " + ex.getMessage(),
-                        "Error", JOptionPane.ERROR_MESSAGE
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE
                     );
                 }
             }
         }.execute();
     }
 
+    /**
+     * Adds an "IN (...)" clause for multi-select filters.
+     */
     private void applyMultiFilter(StringBuilder sb,
                                   List<Object> params,
                                   List<String> vals,
                                   String column) {
-        if (vals.size()>1 || !"All".equals(vals.get(0))) {
+        if (vals.size() > 1 || !"All".equals(vals.get(0))) {
             String ph = String.join(",", Collections.nCopies(vals.size(), "?"));
             sb.append(" AND ").append(column)
               .append(" IN (").append(ph).append(")");
@@ -281,15 +345,24 @@ class MainFrame extends JFrame {
         }
     }
 
+    /**
+     * Prompts for a Top-N value.
+     */
     private int promptForN(String label) {
         String in = JOptionPane.showInputDialog(
             this, "Enter top N " + label + ":", "5"
         );
-        try { return Integer.parseInt(in); }
-        catch (Exception e) { return -1; }
+        try {
+            return Integer.parseInt(in);
+        } catch (Exception e) {
+            return -1;
+        }
     }
 }
 
+/**
+ * Panel providing date and multi-select filters for queries.
+ */
 class FilterPanel extends JPanel {
     private final JSpinner fromDateSpinner, toDateSpinner;
     private final JButton shiftButton, methodButton, offenseButton, blockButton;
@@ -299,6 +372,9 @@ class FilterPanel extends JPanel {
     private List<String> selectedBlocks = new ArrayList<>(Collections.singletonList("All"));
     private final JButton searchButton, clearButton;
 
+    /**
+     * Constructs filter inputs: two date spinners and four multi-select buttons.
+     */
     public FilterPanel() {
         setBorder(BorderFactory.createTitledBorder("Filters"));
         setLayout(new FlowLayout(FlowLayout.LEADING, 8, 8));
@@ -314,6 +390,7 @@ class FilterPanel extends JPanel {
         searchButton = new JButton("Search");
         clearButton = new JButton("Clear");
 
+        // Initialize default date range: last 7 days
         Calendar cal = Calendar.getInstance();
         toDateSpinner.setValue(cal.getTime());
         cal.add(Calendar.DAY_OF_MONTH, -7);
@@ -322,17 +399,27 @@ class FilterPanel extends JPanel {
         add(searchButton);
         add(clearButton);
 
+        // Reset filters action
         clearButton.addActionListener(e -> resetFilters());
     }
 
+    /**
+     * Attaches a listener to the Search button.
+     */
     public void addSearchListener(ActionListener listener) {
         searchButton.addActionListener(listener);
     }
 
+    /**
+     * Returns the Search button (used for default Enter key binding).
+     */
     public JButton getSearchButton() {
         return searchButton;
     }
 
+    /**
+     * Collects current filter criteria into a data object.
+     */
     public FilterCriteria getCriteria() {
         return new FilterCriteria(
             (Date) fromDateSpinner.getValue(),
@@ -344,6 +431,9 @@ class FilterPanel extends JPanel {
         );
     }
 
+    /**
+     * Resets all filters to defaults.
+     */
     private void resetFilters() {
         Calendar cal = Calendar.getInstance();
         toDateSpinner.setValue(cal.getTime());
@@ -361,6 +451,9 @@ class FilterPanel extends JPanel {
         blockButton.setText("Block: All");
     }
 
+    /**
+     * Creates a button that opens a dialog with checkboxes for multi-select.
+     */
     private JButton createMultiSelectButton(String label, String table, String column, List<String> selectionList) {
         JButton button = new JButton(label + ": All");
         button.addActionListener(e -> {
@@ -407,6 +500,9 @@ class FilterPanel extends JPanel {
         return button;
     }
 
+    /**
+     * Helper to create a date spinner for From/To filters.
+     */
     private JSpinner createDateSpinner(String label) {
         add(new JLabel(label));
         JSpinner spinner = new JSpinner(new SpinnerDateModel());
@@ -416,6 +512,9 @@ class FilterPanel extends JPanel {
         return spinner;
     }
 
+    /**
+     * Prompts user for Top-N values via dialog.
+     */
     public int promptForN(String label) {
         String input = JOptionPane.showInputDialog(this, "Enter top N " + label + ":", "5");
         try {
@@ -426,6 +525,9 @@ class FilterPanel extends JPanel {
     }
 }
 
+/**
+ * Panel housing the JTable for displaying query results.
+ */
 class ResultsPanel extends JPanel {
     private final JTable table;
     private final JScrollPane scrollPane;
@@ -437,15 +539,24 @@ class ResultsPanel extends JPanel {
         scrollPane = new JScrollPane(table);
     }
 
+    /**
+     * Returns the scroll pane containing the table.
+     */
     public JScrollPane getScrollPane() {
         return scrollPane;
     }
 
+    /**
+     * Updates the table model with fresh data.
+     */
     public void setTableModel(DefaultTableModel model) {
         table.setModel(model);
     }
 }
 
+/**
+ * Simple data holder for filter criteria from the UI.
+ */
 class FilterCriteria {
     private final Date fromDate, toDate;
     private final List<String> shifts, methods, offenses, blocks;
@@ -453,32 +564,39 @@ class FilterCriteria {
     public FilterCriteria(Date fromDate, Date toDate,
                           List<String> shifts, List<String> methods,
                           List<String> offenses, List<String> blocks) {
-        this.fromDate = fromDate;
-        this.toDate = toDate;
-        this.shifts = shifts;
-        this.methods = methods;
-        this.offenses = offenses;
-        this.blocks = blocks;
+        this.fromDate  = fromDate;
+        this.toDate    = toDate;
+        this.shifts    = shifts;
+        this.methods   = methods;
+        this.offenses  = offenses;
+        this.blocks    = blocks;
     }
 
-    public Date getFromDate() { return fromDate; }
-    public Date getToDate() { return toDate; }
-    public List<String> getShifts() { return shifts; }
-    public List<String> getMethods() { return methods; }
+    public Date getFromDate()  { return fromDate; }
+    public Date getToDate()    { return toDate;   }
+    public List<String> getShifts()   { return shifts;   }
+    public List<String> getMethods()  { return methods;  }
     public List<String> getOffenses() { return offenses; }
-    public List<String> getBlocks() { return blocks; }
+    public List<String> getBlocks()   { return blocks;   }
 }
 
+/**
+ * Utility to convert a JDBC ResultSet into a Swing TableModel.
+ */
 class DBUtil {
     public static DefaultTableModel buildTableModel(ResultSet rs) throws SQLException {
-        ResultSetMetaData md = rs.getMetaData();
-        int cols = md.getColumnCount();
-        Vector<String> colNames = new Vector<>();
-        for (int i = 1; i <= cols; i++) colNames.add(md.getColumnLabel(i));
+        ResultSetMetaData md   = rs.getMetaData();
+        int cols               = md.getColumnCount();
+        Vector<String> colNames= new Vector<>();
+        for (int i = 1; i <= cols; i++) {
+            colNames.add(md.getColumnLabel(i));
+        }
         Vector<Vector<Object>> data = new Vector<>();
         while (rs.next()) {
             Vector<Object> row = new Vector<>();
-            for (int i = 1; i <= cols; i++) row.add(rs.getObject(i));
+            for (int i = 1; i <= cols; i++) {
+                row.add(rs.getObject(i));
+            }
             data.add(row);
         }
         return new DefaultTableModel(data, colNames) {
@@ -487,6 +605,9 @@ class DBUtil {
     }
 }
 
+/**
+ * Manages acquiring JDBC Connection using properties from file.
+ */
 class DBConnector {
     public static Connection getConnection() throws Exception {
         Properties props = new Properties();
@@ -494,9 +615,9 @@ class DBConnector {
             props.load(fis);
         }
         return DriverManager.getConnection(
-                props.getProperty("db.url"),
-                props.getProperty("db.user"),
-                props.getProperty("db.password")
+            props.getProperty("db.url"),
+            props.getProperty("db.user"),
+            props.getProperty("db.password")
         );
     }
 }

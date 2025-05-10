@@ -36,55 +36,20 @@ class MainFrame extends JFrame {
         // Menu Bar
         JMenuBar menuBar = new JMenuBar();
         JMenu reportMenu = new JMenu("Reports");
-        reportMenu.add(createMenuItem("Top N Blocks", e -> {
-            try {
-                fetchTopNBlocks();
-            } catch (Exception e1) {
-                // TODO Auto-generated catch block
-                e1.printStackTrace();
-            }
-        }));
-        reportMenu.add(createMenuItem("Top N Offenses", e -> {
-            try {
-                fetchTopNOffenses();
-            } catch (Exception e1) {
-                // TODO Auto-generated catch block
-                e1.printStackTrace();
-            }
-        }));
-        reportMenu.add(createMenuItem("Avg Duration by Offense", e -> {
-            try {
-                fetchAvgDuration();
-            } catch (Exception e1) {
-                // TODO Auto-generated catch block
-                e1.printStackTrace();
-            }
-        }));
+        reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
+        reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
+        reportMenu.add(createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration()));
         menuBar.add(reportMenu);
 
         JMenu historyMenu = new JMenu("History");
-        historyMenu.add(createMenuItem("View Query History", e -> {
-            try {
-                fetchQueryHistory();
-            } catch (Exception e1) {
-                // TODO Auto-generated catch block
-                e1.printStackTrace();
-            }
-        }));
+        historyMenu.add(createMenuItem("View Query History", e -> fetchQueryHistory()));
         menuBar.add(historyMenu);
 
         setJMenuBar(menuBar);
 
         // Filter Panel
         filterPanel = new FilterPanel();
-        filterPanel.addSearchListener(e -> {
-            try {
-                onSearch();
-            } catch (Exception e1) {
-                // TODO Auto-generated catch block
-                e1.printStackTrace();
-            }
-        });
+        filterPanel.addSearchListener(e -> onSearch());
         add(filterPanel, BorderLayout.NORTH);
 
         // Results Panel
@@ -111,7 +76,7 @@ class MainFrame extends JFrame {
         return item;
     }
 
-    private void performSearch(String sql, List<Object> params, boolean isPrepared) throws Exception {
+    private void performSearch(String sql, List<Object> params, boolean isPrepared) {
         logQuery(sql, params);
         statusLabel.setText("Searching...");
         progressBar.setIndeterminate(true);
@@ -152,19 +117,19 @@ class MainFrame extends JFrame {
         worker.execute();
     }
 
-    private void logQuery(String sql, List<Object> params) throws Exception {
+    private void logQuery(String sql, List<Object> params) {
         String insert = "INSERT INTO query_history (sql_text, executed_at) VALUES (?, ?)";
         try (Connection conn = DBConnector.getConnection();
              PreparedStatement ps = conn.prepareStatement(insert)) {
             ps.setString(1, sql);
             ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
             ps.executeUpdate();
-        } catch (SQLException e) {
+        } catch (Exception e) {
             // logging failure should not block user
         }
     }
 
-    private void onSearch() throws Exception {
+    private void onSearch() {
         FilterCriteria crit = filterPanel.getCriteria();
         StringBuilder sb = new StringBuilder("SELECT f.ccn, f.report_dt, f.start_dt, f.end_dt, " +
                 "s.shift_code AS Shift, m.method_code AS Method, " +
@@ -190,7 +155,7 @@ class MainFrame extends JFrame {
         performSearch(sb.toString(), params, true);
     }
 
-    private void fetchTopNBlocks() throws Exception {
+    private void fetchTopNBlocks() {
         int n = JOptionPane.showInputDialog(this, "Enter top N blocks:", "5").isEmpty() ? -1 : Integer.parseInt(JOptionPane.showInputDialog(this, "Enter top N blocks:", "5"));
         if (n<1) return;
         String sql = "SELECT b.block, COUNT(*) cnt FROM fact_incident f JOIN dim_block b ON f.block=b.block " +
@@ -198,7 +163,7 @@ class MainFrame extends JFrame {
         performSearch(sql, Collections.singletonList(n), true);
     }
 
-    private void fetchTopNOffenses() throws Exception {
+    private void fetchTopNOffenses() {
         int n = JOptionPane.showInputDialog(this, "Enter top N offenses:", "5").isEmpty() ? -1 : Integer.parseInt(JOptionPane.showInputDialog(this, "Enter top N offenses:", "5"));
         if (n<1) return;
         String sql = "SELECT o.offense_code AS offense, COUNT(*) cnt FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
@@ -206,14 +171,14 @@ class MainFrame extends JFrame {
         performSearch(sql, Collections.singletonList(n), true);
     }
 
-    private void fetchAvgDuration() throws Exception {
+    private void fetchAvgDuration() {
         String sql = "SELECT o.offense_code AS Offense, ROUND(AVG(TIMESTAMPDIFF(MINUTE, f.start_dt, f.end_dt)),2) AS AvgDurationMins " +
                      "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
                      "GROUP BY o.offense_code ORDER BY AvgDurationMins DESC";
         performSearch(sql, Collections.emptyList(), false);
     }
 
-    private void fetchQueryHistory() throws Exception {
+    private void fetchQueryHistory() {
         String sql = "SELECT id, sql_text, executed_at FROM query_history ORDER BY executed_at DESC";
         performSearch(sql, Collections.emptyList(), false);
     }

@@ -2,18 +2,13 @@ package FinalJDBC;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
-import java.awt.BorderLayout;
-import java.awt.FlowLayout;
+import java.awt.*;
 import java.awt.event.ActionListener;
 import java.io.FileInputStream;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.Calendar;
+import java.util.*;
 import java.util.Date;
-import java.util.Collections;
 import java.util.List;
-import java.util.Properties;
-import java.util.Vector;
 
 public class CrimeIncidentsApp {
     public static void main(String[] args) {
@@ -37,12 +32,27 @@ class MainFrame extends JFrame {
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout(5, 5));
 
-        // Menu Bar
+        // Polished Menu Bar
         JMenuBar menuBar = new JMenuBar();
+        menuBar.setBackground(new Color(250, 250, 250));
+        menuBar.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, new Color(200, 200, 200)));
+
         JMenu reportMenu = new JMenu("Reports");
-        reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
-        reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
-        reportMenu.add(createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration()));
+        reportMenu.setFont(reportMenu.getFont().deriveFont(Font.BOLD, 14f));
+        reportMenu.setForeground(new Color(0, 102, 204));
+        reportMenu.setOpaque(true);
+        reportMenu.setBackground(new Color(245, 245, 245));
+
+        JMenuItem topN = createMenuItem("Top N Blocks", e -> fetchTopNBlocks());
+        topN.setIcon(UIManager.getIcon("OptionPane.informationIcon"));
+        JMenuItem topOff = createMenuItem("Top N Offenses", e -> fetchTopNOffenses());
+        topOff.setIcon(UIManager.getIcon("OptionPane.warningIcon"));
+        JMenuItem avgDur = createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration());
+        avgDur.setIcon(UIManager.getIcon("OptionPane.questionIcon"));
+
+        reportMenu.add(topN);
+        reportMenu.add(topOff);
+        reportMenu.add(avgDur);
         menuBar.add(reportMenu);
         setJMenuBar(menuBar);
 
@@ -58,6 +68,7 @@ class MainFrame extends JFrame {
         // Status Bar
         JPanel statusPanel = new JPanel(new BorderLayout());
         statusLabel = new JLabel("Ready");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         progressBar = new JProgressBar();
         progressBar.setVisible(false);
         statusPanel.add(statusLabel, BorderLayout.WEST);
@@ -75,6 +86,9 @@ class MainFrame extends JFrame {
     private JMenuItem createMenuItem(String title, ActionListener action) {
         JMenuItem item = new JMenuItem(title);
         item.addActionListener(action);
+        item.setFont(item.getFont().deriveFont(12f));
+        item.setForeground(new Color(25, 25, 112));
+        item.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         return item;
     }
 
@@ -129,16 +143,16 @@ class MainFrame extends JFrame {
     private void onSearch() {
         FilterCriteria crit = filterPanel.getCriteria();
         StringBuilder sb = new StringBuilder(
-                "SELECT f.ccn, f.report_dt, f.start_dt, f.end_dt, " +
-                        "s.shift_code AS Shift, m.method_code AS Method, " +
-                        "o.offense_code AS Offense, b.block AS Block, " +
-                        "f.x, f.y, f.latitude, f.longitude " +
-                        "FROM fact_incident f " +
-                        "LEFT JOIN dim_shift s ON f.shift_code = s.shift_code " +
-                        "LEFT JOIN dim_method m ON f.method_code = m.method_code " +
-                        "LEFT JOIN dim_offense o ON f.offense_code = o.offense_code " +
-                        "LEFT JOIN dim_block b ON f.block = b.block " +
-                        "WHERE 1=1"
+            "SELECT f.ccn, f.report_dt, f.start_dt, f.end_dt, " +
+            "s.shift_code AS Shift, m.method_code AS Method, " +
+            "o.offense_code AS Offense, b.block AS Block, " +
+            "f.x, f.y, f.latitude, f.longitude " +
+            "FROM fact_incident f " +
+            "LEFT JOIN dim_shift s ON f.shift_code = s.shift_code " +
+            "LEFT JOIN dim_method m ON f.method_code = m.method_code " +
+            "LEFT JOIN dim_offense o ON f.offense_code = o.offense_code " +
+            "LEFT JOIN dim_block b ON f.block = b.block " +
+            "WHERE 1=1"
         );
         List<Object> params = new ArrayList<>();
         if (crit.getFromDate() != null) {
@@ -172,11 +186,11 @@ class MainFrame extends JFrame {
         int n = filterPanel.promptForN("blocks");
         if (n < 1) return;
         String sql =
-                "SELECT block, cnt FROM (" +
-                        "  SELECT b.block, COUNT(*) cnt, RANK() OVER (ORDER BY COUNT(*) DESC) rnk " +
-                        "  FROM fact_incident f " +
-                        "  JOIN dim_block b ON f.block=b.block GROUP BY b.block" +
-                        ") t WHERE rnk <= ? ORDER BY cnt DESC";
+            "SELECT block, cnt FROM (" +
+            "  SELECT b.block, COUNT(*) cnt, RANK() OVER (ORDER BY COUNT(*) DESC) rnk " +
+            "  FROM fact_incident f " +
+            "  JOIN dim_block b ON f.block=b.block GROUP BY b.block" +
+            ") t WHERE rnk <= ? ORDER BY cnt DESC";
         performSearch(sql, Collections.singletonList(n), true);
     }
 
@@ -184,18 +198,18 @@ class MainFrame extends JFrame {
         int n = filterPanel.promptForN("offenses");
         if (n < 1) return;
         String sql =
-                "SELECT offense, cnt FROM (" +
-                        "  SELECT o.offense_code AS offense, COUNT(*) cnt, RANK() OVER (ORDER BY COUNT(*) DESC) rnk " +
-                        "  FROM fact_incident f " +
-                        "  JOIN dim_offense o ON f.offense_code=o.offense_code GROUP BY o.offense_code" +
-                        ") t WHERE rnk <= ? ORDER BY cnt DESC";
+            "SELECT offense, cnt FROM (" +
+            "  SELECT o.offense_code AS offense, COUNT(*) cnt, RANK() OVER (ORDER BY COUNT(*) DESC) rnk " +
+            "  FROM fact_incident f " +
+            "  JOIN dim_offense o ON f.offense_code=o.offense_code GROUP BY o.offense_code" +
+            ") t WHERE rnk <= ? ORDER BY cnt DESC";
         performSearch(sql, Collections.singletonList(n), true);
     }
 
     private void fetchAvgDuration() {
         String sql =
-                "SELECT o.offense_code AS Offense, ROUND(AVG(TIMESTAMPDIFF(MINUTE,f.start_dt,f.end_dt)),2) AS AvgDurationMins " +
-                "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code GROUP BY o.offense_code ORDER BY AvgDurationMins DESC";
+            "SELECT o.offense_code AS Offense, ROUND(AVG(TIMESTAMPDIFF(MINUTE,f.start_dt,f.end_dt)),2) AS AvgDurationMins " +
+            "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code GROUP BY o.offense_code ORDER BY AvgDurationMins DESC";
         performSearch(sql, Collections.emptyList(), false);
     }
 }
@@ -240,12 +254,12 @@ class FilterPanel extends JPanel {
 
     public FilterCriteria getCriteria() {
         return new FilterCriteria(
-                (Date) fromDateSpinner.getValue(),
-                (Date) toDateSpinner.getValue(),
-                (String) shiftCombo.getSelectedItem(),
-                (String) methodCombo.getSelectedItem(),
-                (String) offenseCombo.getSelectedItem(),
-                (String) blockCombo.getSelectedItem()
+            (Date) fromDateSpinner.getValue(),
+            (Date) toDateSpinner.getValue(),
+            (String) shiftCombo.getSelectedItem(),
+            (String) methodCombo.getSelectedItem(),
+            (String) offenseCombo.getSelectedItem(),
+            (String) blockCombo.getSelectedItem()
         );
     }
 

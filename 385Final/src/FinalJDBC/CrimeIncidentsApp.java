@@ -7,9 +7,9 @@ import java.awt.event.ActionListener;
 import java.io.FileInputStream;
 import java.sql.*;
 import java.util.*;
-import java.util.Date;
 import java.util.stream.Collectors;
 import java.util.List;
+import java.util.Date;
 
 public class CrimeIncidentsApp {
     public static void main(String[] args) {
@@ -33,24 +33,58 @@ class MainFrame extends JFrame {
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout(5, 5));
 
-        // Polished Menu Bar
+        // Menu Bar
         JMenuBar menuBar = new JMenuBar();
-        menuBar.setBackground(new Color(250, 250, 250));
-        menuBar.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, new Color(200, 200, 200)));
-
         JMenu reportMenu = new JMenu("Reports");
-        reportMenu.setFont(reportMenu.getFont().deriveFont(Font.BOLD, 14f));
-        reportMenu.setForeground(new Color(0, 102, 204));
-
-        reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
-        reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
-        reportMenu.add(createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration()));
+        reportMenu.add(createMenuItem("Top N Blocks", e -> {
+            try {
+                fetchTopNBlocks();
+            } catch (Exception e1) {
+                // TODO Auto-generated catch block
+                e1.printStackTrace();
+            }
+        }));
+        reportMenu.add(createMenuItem("Top N Offenses", e -> {
+            try {
+                fetchTopNOffenses();
+            } catch (Exception e1) {
+                // TODO Auto-generated catch block
+                e1.printStackTrace();
+            }
+        }));
+        reportMenu.add(createMenuItem("Avg Duration by Offense", e -> {
+            try {
+                fetchAvgDuration();
+            } catch (Exception e1) {
+                // TODO Auto-generated catch block
+                e1.printStackTrace();
+            }
+        }));
         menuBar.add(reportMenu);
+
+        JMenu historyMenu = new JMenu("History");
+        historyMenu.add(createMenuItem("View Query History", e -> {
+            try {
+                fetchQueryHistory();
+            } catch (Exception e1) {
+                // TODO Auto-generated catch block
+                e1.printStackTrace();
+            }
+        }));
+        menuBar.add(historyMenu);
+
         setJMenuBar(menuBar);
 
         // Filter Panel
         filterPanel = new FilterPanel();
-        filterPanel.addSearchListener(e -> onSearch());
+        filterPanel.addSearchListener(e -> {
+            try {
+                onSearch();
+            } catch (Exception e1) {
+                // TODO Auto-generated catch block
+                e1.printStackTrace();
+            }
+        });
         add(filterPanel, BorderLayout.NORTH);
 
         // Results Panel
@@ -60,15 +94,11 @@ class MainFrame extends JFrame {
         // Status Bar
         JPanel statusPanel = new JPanel(new BorderLayout());
         statusLabel = new JLabel("Ready");
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         progressBar = new JProgressBar();
         progressBar.setVisible(false);
         statusPanel.add(statusLabel, BorderLayout.WEST);
         statusPanel.add(progressBar, BorderLayout.EAST);
         add(statusPanel, BorderLayout.SOUTH);
-
-        // Enter key triggers search
-        getRootPane().setDefaultButton(filterPanel.getSearchButton());
 
         setSize(1000, 600);
         setLocationRelativeTo(null);
@@ -78,11 +108,11 @@ class MainFrame extends JFrame {
     private JMenuItem createMenuItem(String title, ActionListener action) {
         JMenuItem item = new JMenuItem(title);
         item.addActionListener(action);
-        item.setFont(item.getFont().deriveFont(12f));
         return item;
     }
 
-    private void performSearch(String sql, List<Object> params, boolean isPrepared) {
+    private void performSearch(String sql, List<Object> params, boolean isPrepared) throws Exception {
+        logQuery(sql, params);
         statusLabel.setText("Searching...");
         progressBar.setIndeterminate(true);
         progressBar.setVisible(true);
@@ -90,21 +120,15 @@ class MainFrame extends JFrame {
         SwingWorker<DefaultTableModel, Void> worker = new SwingWorker<>() {
             @Override
             protected DefaultTableModel doInBackground() throws Exception {
-                if (isPrepared) {
-                    try (Connection conn = DBConnector.getConnection();
-                         PreparedStatement ps = conn.prepareStatement(sql)) {
-                        for (int i = 0; i < params.size(); i++) {
-                            ps.setObject(i + 1, params.get(i));
-                        }
-                        try (ResultSet rs = ps.executeQuery()) {
-                            return DBUtil.buildTableModel(rs);
-                        }
-                    }
-                } else {
-                    try (Connection conn = DBConnector.getConnection();
-                         Statement st = conn.createStatement();
-                         ResultSet rs = st.executeQuery(sql)) {
-                        return DBUtil.buildTableModel(rs);
+                try (Connection conn = DBConnector.getConnection()) {
+                    PreparedStatement ps = null;
+                    if (isPrepared) {
+                        ps = conn.prepareStatement(sql);
+                        for (int i = 0; i < params.size(); i++) ps.setObject(i + 1, params.get(i));
+                        return DBUtil.buildTableModel(ps.executeQuery());
+                    } else {
+                        Statement st = conn.createStatement();
+                        return DBUtil.buildTableModel(st.executeQuery(sql));
                     }
                 }
             }
@@ -116,11 +140,9 @@ class MainFrame extends JFrame {
                     resultsPanel.setTableModel(model);
                     statusLabel.setText(model.getRowCount() + " records found.");
                 } catch (Exception e) {
-                    e.printStackTrace();
                     JOptionPane.showMessageDialog(MainFrame.this,
-                            "Error fetching data: " + e.getMessage(),
-                            "Database Error", JOptionPane.ERROR_MESSAGE);
-                    statusLabel.setText("Error occurred.");
+                            "Error: " + e.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
                 } finally {
                     progressBar.setIndeterminate(false);
                     progressBar.setVisible(false);
@@ -130,31 +152,36 @@ class MainFrame extends JFrame {
         worker.execute();
     }
 
-    private void onSearch() {
+    private void logQuery(String sql, List<Object> params) throws Exception {
+        String insert = "INSERT INTO query_history (sql_text, executed_at) VALUES (?, ?)";
+        try (Connection conn = DBConnector.getConnection();
+             PreparedStatement ps = conn.prepareStatement(insert)) {
+            ps.setString(1, sql);
+            ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            // logging failure should not block user
+        }
+    }
+
+    private void onSearch() throws Exception {
         FilterCriteria crit = filterPanel.getCriteria();
-        StringBuilder sb = new StringBuilder(
-            "SELECT f.ccn, f.report_dt, f.start_dt, f.end_dt, " +
-            "s.shift_code AS Shift, m.method_code AS Method, " +
-            "o.offense_code AS Offense, b.block AS Block, " +
-            "f.x, f.y, f.latitude, f.longitude " +
-            "FROM fact_incident f " +
-            "LEFT JOIN dim_shift s ON f.shift_code = s.shift_code " +
-            "LEFT JOIN dim_method m ON f.method_code = m.method_code " +
-            "LEFT JOIN dim_offense o ON f.offense_code = o.offense_code " +
-            "LEFT JOIN dim_block b ON f.block = b.block " +
-            "WHERE 1=1"
-        );
+        StringBuilder sb = new StringBuilder("SELECT f.ccn, f.report_dt, f.start_dt, f.end_dt, " +
+                "s.shift_code AS Shift, m.method_code AS Method, " +
+                "o.offense_code AS Offense, b.block AS Block, f.x, f.y, f.latitude, f.longitude " +
+                "FROM fact_incident f " +
+                "LEFT JOIN dim_shift s ON f.shift_code=s.shift_code " +
+                "LEFT JOIN dim_method m ON f.method_code=m.method_code " +
+                "LEFT JOIN dim_offense o ON f.offense_code=o.offense_code " +
+                "LEFT JOIN dim_block b ON f.block=b.block WHERE 1=1");
         List<Object> params = new ArrayList<>();
 
         if (crit.getFromDate() != null) {
-            sb.append(" AND f.report_dt >= ?");
-            params.add(new Timestamp(crit.getFromDate().getTime()));
+            sb.append(" AND f.report_dt>=?"); params.add(new Timestamp(crit.getFromDate().getTime()));
         }
         if (crit.getToDate() != null) {
-            sb.append(" AND f.report_dt <= ?");
-            params.add(new Timestamp(crit.getToDate().getTime()));
+            sb.append(" AND f.report_dt<=?"); params.add(new Timestamp(crit.getToDate().getTime()));
         }
-
         applyMultiFilter(sb, params, crit.getShifts(), "s.shift_code");
         applyMultiFilter(sb, params, crit.getMethods(), "m.method_code");
         applyMultiFilter(sb, params, crit.getOffenses(), "o.offense_code");
@@ -163,47 +190,45 @@ class MainFrame extends JFrame {
         performSearch(sb.toString(), params, true);
     }
 
-    private void applyMultiFilter(StringBuilder sb, List<Object> params,
-                                  List<String> values, String columnRef) {
-        if (values == null || values.isEmpty() || (values.size() == 1 && "All".equals(values.get(0)))) {
-            return;
-        }
-        String placeholders = values.stream().map(v -> "?").collect(Collectors.joining(","));
-        sb.append(" AND ").append(columnRef).append(" IN (").append(placeholders).append(")");
-        params.addAll(values);
-    }
-
-    private void fetchTopNBlocks() {
-        int n = filterPanel.promptForN("blocks");
-        if (n < 1) return;
-        String sql =
-            "SELECT block, cnt FROM (" +
-            "  SELECT b.block, COUNT(*) cnt, RANK() OVER (ORDER BY COUNT(*) DESC) rnk " +
-            "  FROM fact_incident f " +
-            "  JOIN dim_block b ON f.block=b.block GROUP BY b.block" +
-            ") t WHERE rnk <= ? ORDER BY cnt DESC";
+    private void fetchTopNBlocks() throws Exception {
+        int n = JOptionPane.showInputDialog(this, "Enter top N blocks:", "5").isEmpty() ? -1 : Integer.parseInt(JOptionPane.showInputDialog(this, "Enter top N blocks:", "5"));
+        if (n<1) return;
+        String sql = "SELECT b.block, COUNT(*) cnt FROM fact_incident f JOIN dim_block b ON f.block=b.block " +
+            "GROUP BY b.block ORDER BY cnt DESC LIMIT ?";
         performSearch(sql, Collections.singletonList(n), true);
     }
 
-    private void fetchTopNOffenses() {
-        int n = filterPanel.promptForN("offenses");
-        if (n < 1) return;
-        String sql =
-            "SELECT offense, cnt FROM (" +
-            "  SELECT o.offense_code AS offense, COUNT(*) cnt, RANK() OVER (ORDER BY COUNT(*) DESC) rnk " +
-            "  FROM fact_incident f " +
-            "  JOIN dim_offense o ON f.offense_code=o.offense_code GROUP BY o.offense_code" +
-            ") t WHERE rnk <= ? ORDER BY cnt DESC";
+    private void fetchTopNOffenses() throws Exception {
+        int n = JOptionPane.showInputDialog(this, "Enter top N offenses:", "5").isEmpty() ? -1 : Integer.parseInt(JOptionPane.showInputDialog(this, "Enter top N offenses:", "5"));
+        if (n<1) return;
+        String sql = "SELECT o.offense_code AS offense, COUNT(*) cnt FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
+            "GROUP BY o.offense_code ORDER BY cnt DESC LIMIT ?";
         performSearch(sql, Collections.singletonList(n), true);
     }
 
-    private void fetchAvgDuration() {
-        String sql =
-            "SELECT o.offense_code AS Offense, ROUND(AVG(TIMESTAMPDIFF(MINUTE,f.start_dt,f.end_dt)),2) AS AvgDurationMins " +
-            "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code GROUP BY o.offense_code ORDER BY AvgDurationMins DESC";
+    private void fetchAvgDuration() throws Exception {
+        String sql = "SELECT o.offense_code AS Offense, ROUND(AVG(TIMESTAMPDIFF(MINUTE, f.start_dt, f.end_dt)),2) AS AvgDurationMins " +
+                     "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
+                     "GROUP BY o.offense_code ORDER BY AvgDurationMins DESC";
         performSearch(sql, Collections.emptyList(), false);
     }
+
+    private void fetchQueryHistory() throws Exception {
+        String sql = "SELECT id, sql_text, executed_at FROM query_history ORDER BY executed_at DESC";
+        performSearch(sql, Collections.emptyList(), false);
+    }
+
+    private void applyMultiFilter(StringBuilder sb, List<Object> params, List<String> vals, String column) {
+        if (vals.size()>0 && !(vals.size()==1 && "All".equals(vals.get(0)))) {
+            String ph = String.join(",", Collections.nCopies(vals.size(), "?"));
+            sb.append(" AND ").append(column).append(" IN (").append(ph).append(")");
+            params.addAll(vals);
+        }
+    }
 }
+
+// FilterPanel, ResultsPanel, FilterCriteria, DBUtil, DBConnector unchanged...
+
 
 class FilterPanel extends JPanel {
     private final JSpinner fromDateSpinner, toDateSpinner;

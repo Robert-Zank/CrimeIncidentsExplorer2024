@@ -6,10 +6,19 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 import java.io.FileInputStream;
 import java.sql.*;
+import java.text.DateFormatSymbols;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.List;
 import java.util.Date;
+
+// JFreeChart imports
+// Ensure JFreeChart library is on your classpath.
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.ChartPanel;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.plot.PlotOrientation;
+import org.jfree.data.category.DefaultCategoryDataset;
 
 public class CrimeIncidentsApp {
     public static void main(String[] args) {
@@ -39,6 +48,7 @@ class MainFrame extends JFrame {
         reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
         reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
         reportMenu.add(createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration()));
+        reportMenu.add(createMenuItem("Incidents per Month Chart", e -> showIncidentsPerMonthChart()));
         menuBar.add(reportMenu);
 
         JMenu historyMenu = new JMenu("History");
@@ -86,14 +96,17 @@ class MainFrame extends JFrame {
             @Override
             protected DefaultTableModel doInBackground() throws Exception {
                 try (Connection conn = DBConnector.getConnection()) {
-                    PreparedStatement ps = null;
                     if (isPrepared) {
-                        ps = conn.prepareStatement(sql);
-                        for (int i = 0; i < params.size(); i++) ps.setObject(i + 1, params.get(i));
-                        return DBUtil.buildTableModel(ps.executeQuery());
+                        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                            for (int i = 0; i < params.size(); i++) ps.setObject(i + 1, params.get(i));
+                            try (ResultSet rs = ps.executeQuery()) {
+                                return DBUtil.buildTableModel(rs);
+                            }
+                        }
                     } else {
-                        Statement st = conn.createStatement();
-                        return DBUtil.buildTableModel(st.executeQuery(sql));
+                        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+                            return DBUtil.buildTableModel(rs);
+                        }
                     }
                 }
             }
@@ -125,22 +138,23 @@ class MainFrame extends JFrame {
             ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
             ps.executeUpdate();
         } catch (Exception e) {
-            // logging failure should not block user
+            // ignore
         }
     }
 
     private void onSearch() {
         FilterCriteria crit = filterPanel.getCriteria();
-        StringBuilder sb = new StringBuilder("SELECT f.ccn, f.report_dt, f.start_dt, f.end_dt, " +
-                "s.shift_code AS Shift, m.method_code AS Method, " +
-                "o.offense_code AS Offense, b.block AS Block, f.x, f.y, f.latitude, f.longitude " +
-                "FROM fact_incident f " +
-                "LEFT JOIN dim_shift s ON f.shift_code=s.shift_code " +
-                "LEFT JOIN dim_method m ON f.method_code=m.method_code " +
-                "LEFT JOIN dim_offense o ON f.offense_code=o.offense_code " +
-                "LEFT JOIN dim_block b ON f.block=b.block WHERE 1=1");
+        StringBuilder sb = new StringBuilder(
+            "SELECT f.ccn, f.report_dt, f.start_dt, f.end_dt, " +
+            "s.shift_code AS Shift, m.method_code AS Method, " +
+            "o.offense_code AS Offense, b.block AS Block, f.x, f.y, f.latitude, f.longitude " +
+            "FROM fact_incident f " +
+            "LEFT JOIN dim_shift s ON f.shift_code=s.shift_code " +
+            "LEFT JOIN dim_method m ON f.method_code=m.method_code " +
+            "LEFT JOIN dim_offense o ON f.offense_code=o.offense_code " +
+            "LEFT JOIN dim_block b ON f.block=b.block WHERE 1=1"
+        );
         List<Object> params = new ArrayList<>();
-
         if (crit.getFromDate() != null) {
             sb.append(" AND f.report_dt>=?"); params.add(new Timestamp(crit.getFromDate().getTime()));
         }
@@ -151,23 +165,24 @@ class MainFrame extends JFrame {
         applyMultiFilter(sb, params, crit.getMethods(), "m.method_code");
         applyMultiFilter(sb, params, crit.getOffenses(), "o.offense_code");
         applyMultiFilter(sb, params, crit.getBlocks(), "b.block");
-
         performSearch(sb.toString(), params, true);
     }
 
     private void fetchTopNBlocks() {
-        int n = JOptionPane.showInputDialog(this, "Enter top N blocks:", "5").isEmpty() ? -1 : Integer.parseInt(JOptionPane.showInputDialog(this, "Enter top N blocks:", "5"));
-        if (n<1) return;
+        String input = JOptionPane.showInputDialog(this, "Enter top N blocks:", "5");
+        int n = (input != null && !input.isEmpty()) ? Integer.parseInt(input) : -1;
+        if (n < 1) return;
         String sql = "SELECT b.block, COUNT(*) cnt FROM fact_incident f JOIN dim_block b ON f.block=b.block " +
-            "GROUP BY b.block ORDER BY cnt DESC LIMIT ?";
+                     "GROUP BY b.block ORDER BY cnt DESC LIMIT ?";
         performSearch(sql, Collections.singletonList(n), true);
     }
 
     private void fetchTopNOffenses() {
-        int n = JOptionPane.showInputDialog(this, "Enter top N offenses:", "5").isEmpty() ? -1 : Integer.parseInt(JOptionPane.showInputDialog(this, "Enter top N offenses:", "5"));
-        if (n<1) return;
+        String input = JOptionPane.showInputDialog(this, "Enter top N offenses:", "5");
+        int n = (input != null && !input.isEmpty()) ? Integer.parseInt(input) : -1;
+        if (n < 1) return;
         String sql = "SELECT o.offense_code AS offense, COUNT(*) cnt FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
-            "GROUP BY o.offense_code ORDER BY cnt DESC LIMIT ?";
+                     "GROUP BY o.offense_code ORDER BY cnt DESC LIMIT ?";
         performSearch(sql, Collections.singletonList(n), true);
     }
 
@@ -183,8 +198,65 @@ class MainFrame extends JFrame {
         performSearch(sql, Collections.emptyList(), false);
     }
 
+    private void showIncidentsPerMonthChart() {
+        FilterCriteria crit = filterPanel.getCriteria();
+        Date from = crit.getFromDate();
+        Date to = crit.getToDate();
+        SwingWorker<DefaultCategoryDataset, Void> worker = new SwingWorker<>() {
+            @Override
+            protected DefaultCategoryDataset doInBackground() throws Exception {
+                DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+                String query =
+                    "SELECT o.offense_code AS offense, MONTH(f.report_dt) AS mon, COUNT(*) AS cnt " +
+                    "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
+                    "WHERE f.report_dt>=? AND f.report_dt<=? " +
+                    "GROUP BY o.offense_code, MONTH(f.report_dt) ORDER BY MONTH(f.report_dt)";
+                try (Connection conn = DBConnector.getConnection();
+                     PreparedStatement ps = conn.prepareStatement(query)) {
+                    ps.setTimestamp(1, new Timestamp(from.getTime()));
+                    ps.setTimestamp(2, new Timestamp(to.getTime()));
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            String offense = rs.getString("offense");
+                            int mon = rs.getInt("mon");
+                            long cnt = rs.getLong("cnt");
+                            String month = new DateFormatSymbols().getMonths()[mon-1];
+                            dataset.addValue(cnt, offense, month);
+                        }
+                    }
+                }
+                return dataset;
+            }
+            @Override
+            protected void done() {
+                try {
+                    DefaultCategoryDataset dataset = get();
+                    JFreeChart chart = ChartFactory.createLineChart(
+                            "Incidents per Month by Offense",
+                            "Month",
+                            "Count",
+                            dataset,
+                            PlotOrientation.VERTICAL,
+                            true, true, false);
+                    ChartPanel chartPanel = new ChartPanel(chart);
+                    JFrame frame = new JFrame("Monthly Offense Trends");
+                    frame.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+                    frame.add(chartPanel);
+                    frame.pack();
+                    frame.setLocationRelativeTo(MainFrame.this);
+                    frame.setVisible(true);
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(MainFrame.this,
+                            "Failed to load chart: " + e.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+    }
+
     private void applyMultiFilter(StringBuilder sb, List<Object> params, List<String> vals, String column) {
-        if (vals.size()>0 && !(vals.size()==1 && "All".equals(vals.get(0)))) {
+        if (!vals.isEmpty() && !(vals.size()==1 && "All".equals(vals.get(0)))) {
             String ph = String.join(",", Collections.nCopies(vals.size(), "?"));
             sb.append(" AND ").append(column).append(" IN (").append(ph).append(")");
             params.addAll(vals);
@@ -192,7 +264,7 @@ class MainFrame extends JFrame {
     }
 }
 
-// FilterPanel, ResultsPanel, FilterCriteria, DBUtil, DBConnector unchanged...
+// Note: FilterPanel, ResultsPanel, FilterCriteria, DBUtil, and DBConnector remain unchanged.
 
 
 class FilterPanel extends JPanel {

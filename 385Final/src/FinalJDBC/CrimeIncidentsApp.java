@@ -8,12 +8,10 @@ import java.io.FileInputStream;
 import java.sql.*;
 import java.text.DateFormatSymbols;
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.List;
 import java.util.Date;
+import java.util.List;
 
-// JFreeChart imports
-// Ensure JFreeChart library is on your classpath.
+// JFreeChart imports (ensure jars on classpath)
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
@@ -24,49 +22,41 @@ public class CrimeIncidentsApp {
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             try {
-                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-            } catch (Exception ignored) {}
-            new MainFrame();
+                UIManager.setLookAndFeel(
+                    UIManager.getSystemLookAndFeelClassName()
+                );
+            } catch (Exception ignored) {
+            }
+            new MainFrame().initUI();
         });
     }
 }
 
 class MainFrame extends JFrame {
-    private final FilterPanel filterPanel;
-    private final ResultsPanel resultsPanel;
-    private final JLabel statusLabel;
-    private final JProgressBar progressBar;
+    private FilterPanel filterPanel;
+    private ResultsPanel resultsPanel;
+    private JLabel statusLabel;
+    private JProgressBar progressBar;
 
     public MainFrame() {
         super("Crime Incidents Explorer");
+    }
+
+    public void initUI() {
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout(5, 5));
 
-        // Menu Bar
-        JMenuBar menuBar = new JMenuBar();
-        JMenu reportMenu = new JMenu("Reports");
-        reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
-        reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
-        reportMenu.add(createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration()));
-        reportMenu.add(createMenuItem("Incidents per Month Chart", e -> showIncidentsPerMonthChart()));
-        menuBar.add(reportMenu);
+        // Build menu
+        setJMenuBar(createMenuBar());
 
-        JMenu historyMenu = new JMenu("History");
-        historyMenu.add(createMenuItem("View Query History", e -> fetchQueryHistory()));
-        menuBar.add(historyMenu);
-
-        setJMenuBar(menuBar);
-
-        // Filter Panel
+        // Panels
         filterPanel = new FilterPanel();
         filterPanel.addSearchListener(e -> onSearch());
         add(filterPanel, BorderLayout.NORTH);
 
-        // Results Panel
         resultsPanel = new ResultsPanel();
         add(resultsPanel.getScrollPane(), BorderLayout.CENTER);
 
-        // Status Bar
         JPanel statusPanel = new JPanel(new BorderLayout());
         statusLabel = new JLabel("Ready");
         progressBar = new JProgressBar();
@@ -80,31 +70,51 @@ class MainFrame extends JFrame {
         setVisible(true);
     }
 
+    private JMenuBar createMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+
+        JMenu reportMenu = new JMenu("Reports");
+        reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
+        reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
+        reportMenu.add(createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration()));
+        reportMenu.add(createMenuItem("Incidents per Month Chart", e -> showIncidentsPerMonthChart()));
+        menuBar.add(reportMenu);
+
+        JMenu historyMenu = new JMenu("History");
+        historyMenu.add(createMenuItem("View Query History", e -> fetchQueryHistory()));
+        menuBar.add(historyMenu);
+
+        return menuBar;
+    }
+
     private JMenuItem createMenuItem(String title, ActionListener action) {
         JMenuItem item = new JMenuItem(title);
         item.addActionListener(action);
         return item;
     }
 
-    private void performSearch(String sql, List<Object> params, boolean isPrepared) {
-        logQuery(sql, params);
+    private void performSearch(String sql, List<Object> params, boolean prepared) {
+        logQuery(sql);
         statusLabel.setText("Searching...");
         progressBar.setIndeterminate(true);
         progressBar.setVisible(true);
 
-        SwingWorker<DefaultTableModel, Void> worker = new SwingWorker<>() {
+        new SwingWorker<DefaultTableModel, Void>() {
             @Override
             protected DefaultTableModel doInBackground() throws Exception {
                 try (Connection conn = DBConnector.getConnection()) {
-                    if (isPrepared) {
+                    if (prepared) {
                         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                            for (int i = 0; i < params.size(); i++) ps.setObject(i + 1, params.get(i));
+                            for (int i = 0; i < params.size(); i++) {
+                                ps.setObject(i + 1, params.get(i));
+                            }
                             try (ResultSet rs = ps.executeQuery()) {
                                 return DBUtil.buildTableModel(rs);
                             }
                         }
                     } else {
-                        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+                        try (Statement st = conn.createStatement();
+                             ResultSet rs = st.executeQuery(sql)) {
                             return DBUtil.buildTableModel(rs);
                         }
                     }
@@ -114,40 +124,40 @@ class MainFrame extends JFrame {
             @Override
             protected void done() {
                 try {
-                    DefaultTableModel model = get();
-                    resultsPanel.setTableModel(model);
-                    statusLabel.setText(model.getRowCount() + " records found.");
+                    resultsPanel.setTableModel(get());
+                    statusLabel.setText(get().getRowCount() + " records found.");
                 } catch (Exception e) {
-                    JOptionPane.showMessageDialog(MainFrame.this,
-                            "Error: " + e.getMessage(),
-                            "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(
+                        MainFrame.this,
+                        "Error: " + e.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE
+                    );
                 } finally {
                     progressBar.setIndeterminate(false);
                     progressBar.setVisible(false);
                 }
             }
-        };
-        worker.execute();
+        }.execute();
     }
 
-    private void logQuery(String sql, List<Object> params) {
-        String insert = "INSERT INTO query_history (sql_text, executed_at) VALUES (?, ?)";
+    private void logQuery(String sql) {
+        String insert = "INSERT INTO query_history(sql_text, executed_at) VALUES(?, ?)";
         try (Connection conn = DBConnector.getConnection();
              PreparedStatement ps = conn.prepareStatement(insert)) {
             ps.setString(1, sql);
             ps.setTimestamp(2, new Timestamp(System.currentTimeMillis()));
             ps.executeUpdate();
-        } catch (Exception e) {
-            // ignore
+        } catch (Exception ignored) {
         }
     }
 
     private void onSearch() {
-        FilterCriteria crit = filterPanel.getCriteria();
+        FilterCriteria c = filterPanel.getCriteria();
         StringBuilder sb = new StringBuilder(
             "SELECT f.ccn, f.report_dt, f.start_dt, f.end_dt, " +
-            "s.shift_code AS Shift, m.method_code AS Method, " +
-            "o.offense_code AS Offense, b.block AS Block, f.x, f.y, f.latitude, f.longitude " +
+            "s.shift_code Shift, m.method_code Method, " +
+            "o.offense_code Offense, b.block Block, f.x, f.y, f.latitude, f.longitude " +
             "FROM fact_incident f " +
             "LEFT JOIN dim_shift s ON f.shift_code=s.shift_code " +
             "LEFT JOIN dim_method m ON f.method_code=m.method_code " +
@@ -155,117 +165,130 @@ class MainFrame extends JFrame {
             "LEFT JOIN dim_block b ON f.block=b.block WHERE 1=1"
         );
         List<Object> params = new ArrayList<>();
-        if (crit.getFromDate() != null) {
-            sb.append(" AND f.report_dt>=?"); params.add(new Timestamp(crit.getFromDate().getTime()));
+        if (c.getFromDate() != null) {
+            sb.append(" AND f.report_dt>=?");
+            params.add(new Timestamp(c.getFromDate().getTime()));
         }
-        if (crit.getToDate() != null) {
-            sb.append(" AND f.report_dt<=?"); params.add(new Timestamp(crit.getToDate().getTime()));
+        if (c.getToDate() != null) {
+            sb.append(" AND f.report_dt<=?");
+            params.add(new Timestamp(c.getToDate().getTime()));
         }
-        applyMultiFilter(sb, params, crit.getShifts(), "s.shift_code");
-        applyMultiFilter(sb, params, crit.getMethods(), "m.method_code");
-        applyMultiFilter(sb, params, crit.getOffenses(), "o.offense_code");
-        applyMultiFilter(sb, params, crit.getBlocks(), "b.block");
+        applyMultiFilter(sb, params, c.getShifts(),   "s.shift_code");
+        applyMultiFilter(sb, params, c.getMethods(),  "m.method_code");
+        applyMultiFilter(sb, params, c.getOffenses(), "o.offense_code");
+        applyMultiFilter(sb, params, c.getBlocks(),   "b.block");
         performSearch(sb.toString(), params, true);
     }
 
     private void fetchTopNBlocks() {
-        String input = JOptionPane.showInputDialog(this, "Enter top N blocks:", "5");
-        int n = (input != null && !input.isEmpty()) ? Integer.parseInt(input) : -1;
+        int n = promptForN("blocks");
         if (n < 1) return;
-        String sql = "SELECT b.block, COUNT(*) cnt FROM fact_incident f JOIN dim_block b ON f.block=b.block " +
-                     "GROUP BY b.block ORDER BY cnt DESC LIMIT ?";
+        String sql =
+            "SELECT b.block, COUNT(*) cnt " +
+            "FROM fact_incident f JOIN dim_block b ON f.block=b.block " +
+            "GROUP BY b.block ORDER BY cnt DESC LIMIT ?";
         performSearch(sql, Collections.singletonList(n), true);
     }
 
     private void fetchTopNOffenses() {
-        String input = JOptionPane.showInputDialog(this, "Enter top N offenses:", "5");
-        int n = (input != null && !input.isEmpty()) ? Integer.parseInt(input) : -1;
+        int n = promptForN("offenses");
         if (n < 1) return;
-        String sql = "SELECT o.offense_code AS offense, COUNT(*) cnt FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
-                     "GROUP BY o.offense_code ORDER BY cnt DESC LIMIT ?";
+        String sql =
+            "SELECT o.offense_code offense, COUNT(*) cnt " +
+            "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
+            "GROUP BY o.offense_code ORDER BY cnt DESC LIMIT ?";
         performSearch(sql, Collections.singletonList(n), true);
     }
 
     private void fetchAvgDuration() {
-        String sql = "SELECT o.offense_code AS Offense, ROUND(AVG(TIMESTAMPDIFF(MINUTE, f.start_dt, f.end_dt)),2) AS AvgDurationMins " +
-                     "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
-                     "GROUP BY o.offense_code ORDER BY AvgDurationMins DESC";
+        String sql =
+            "SELECT o.offense_code offense, " +
+            "ROUND(AVG(TIMESTAMPDIFF(MINUTE,f.start_dt,f.end_dt)),2) avg_duration " +
+            "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
+            "GROUP BY o.offense_code ORDER BY avg_duration DESC";
         performSearch(sql, Collections.emptyList(), false);
     }
 
     private void fetchQueryHistory() {
-        String sql = "SELECT id, sql_text, executed_at FROM query_history ORDER BY executed_at DESC";
-        performSearch(sql, Collections.emptyList(), false);
+        performSearch(
+            "SELECT id, sql_text, executed_at FROM query_history ORDER BY executed_at DESC",
+            Collections.emptyList(), false
+        );
     }
 
     private void showIncidentsPerMonthChart() {
-        FilterCriteria crit = filterPanel.getCriteria();
-        Date from = crit.getFromDate();
-        Date to = crit.getToDate();
-        SwingWorker<DefaultCategoryDataset, Void> worker = new SwingWorker<>() {
+        FilterCriteria c = filterPanel.getCriteria();
+        Timestamp t1 = new Timestamp(c.getFromDate().getTime());
+        Timestamp t2 = new Timestamp(c.getToDate().getTime());
+        new SwingWorker<DefaultCategoryDataset, Void>() {
             @Override
             protected DefaultCategoryDataset doInBackground() throws Exception {
-                DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-                String query =
-                    "SELECT o.offense_code AS offense, MONTH(f.report_dt) AS mon, COUNT(*) AS cnt " +
+                DefaultCategoryDataset ds = new DefaultCategoryDataset();
+                String q =
+                    "SELECT o.offense_code offense, MONTH(f.report_dt) m, COUNT(*) cnt " +
                     "FROM fact_incident f JOIN dim_offense o ON f.offense_code=o.offense_code " +
                     "WHERE f.report_dt>=? AND f.report_dt<=? " +
-                    "GROUP BY o.offense_code, MONTH(f.report_dt) ORDER BY MONTH(f.report_dt)";
-                try (Connection conn = DBConnector.getConnection();
-                     PreparedStatement ps = conn.prepareStatement(query)) {
-                    ps.setTimestamp(1, new Timestamp(from.getTime()));
-                    ps.setTimestamp(2, new Timestamp(to.getTime()));
-                    try (ResultSet rs = ps.executeQuery()) {
+                    "GROUP BY o.offense_code, MONTH(f.report_dt) ORDER BY m";
+                try (Connection conn=DBConnector.getConnection();
+                     PreparedStatement ps=conn.prepareStatement(q)) {
+                    ps.setTimestamp(1, t1);
+                    ps.setTimestamp(2, t2);
+                    try (ResultSet rs=ps.executeQuery()) {
                         while (rs.next()) {
-                            String offense = rs.getString("offense");
-                            int mon = rs.getInt("mon");
-                            long cnt = rs.getLong("cnt");
-                            String month = new DateFormatSymbols().getMonths()[mon-1];
-                            dataset.addValue(cnt, offense, month);
+                            String off = rs.getString("offense");
+                            int m = rs.getInt("m");
+                            ds.addValue(rs.getLong("cnt"), off,
+                                new DateFormatSymbols().getMonths()[m-1]
+                            );
                         }
                     }
                 }
-                return dataset;
+                return ds;
             }
             @Override
             protected void done() {
                 try {
-                    DefaultCategoryDataset dataset = get();
-                    JFreeChart chart = ChartFactory.createLineChart(
-                            "Incidents per Month by Offense",
-                            "Month",
-                            "Count",
-                            dataset,
-                            PlotOrientation.VERTICAL,
-                            true, true, false);
-                    ChartPanel chartPanel = new ChartPanel(chart);
-                    JFrame frame = new JFrame("Monthly Offense Trends");
-                    frame.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-                    frame.add(chartPanel);
-                    frame.pack();
-                    frame.setLocationRelativeTo(MainFrame.this);
-                    frame.setVisible(true);
-                } catch (Exception e) {
+                    DefaultCategoryDataset ds = get();
+                    JFreeChart ch = ChartFactory.createLineChart(
+                        "Incidents per Month by Offense",
+                        "Month", "Count", ds,
+                        PlotOrientation.VERTICAL, true, true, false
+                    );
+                    JFrame f = new JFrame("Monthly Trends");
+                    f.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+                    f.add(new ChartPanel(ch));
+                    f.pack(); f.setLocationRelativeTo(MainFrame.this);
+                    f.setVisible(true);
+                } catch (Exception ex) {
                     JOptionPane.showMessageDialog(MainFrame.this,
-                            "Failed to load chart: " + e.getMessage(),
-                            "Error", JOptionPane.ERROR_MESSAGE);
+                        "Chart error: " + ex.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE
+                    );
                 }
             }
-        };
-        worker.execute();
+        }.execute();
     }
 
-    private void applyMultiFilter(StringBuilder sb, List<Object> params, List<String> vals, String column) {
-        if (!vals.isEmpty() && !(vals.size()==1 && "All".equals(vals.get(0)))) {
+    private void applyMultiFilter(StringBuilder sb,
+                                  List<Object> params,
+                                  List<String> vals,
+                                  String column) {
+        if (vals.size()>1 || !"All".equals(vals.get(0))) {
             String ph = String.join(",", Collections.nCopies(vals.size(), "?"));
-            sb.append(" AND ").append(column).append(" IN (").append(ph).append(")");
+            sb.append(" AND ").append(column)
+              .append(" IN (").append(ph).append(")");
             params.addAll(vals);
         }
     }
+
+    private int promptForN(String label) {
+        String in = JOptionPane.showInputDialog(
+            this, "Enter top N " + label + ":", "5"
+        );
+        try { return Integer.parseInt(in); }
+        catch (Exception e) { return -1; }
+    }
 }
-
-// Note: FilterPanel, ResultsPanel, FilterCriteria, DBUtil, and DBConnector remain unchanged.
-
 
 class FilterPanel extends JPanel {
     private final JSpinner fromDateSpinner, toDateSpinner;

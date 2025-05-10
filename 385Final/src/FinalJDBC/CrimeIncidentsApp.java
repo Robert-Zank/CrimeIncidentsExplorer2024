@@ -8,6 +8,7 @@ import java.io.FileInputStream;
 import java.sql.*;
 import java.util.*;
 import java.util.Date;
+import java.util.stream.Collectors;
 import java.util.List;
 
 public class CrimeIncidentsApp {
@@ -40,19 +41,10 @@ class MainFrame extends JFrame {
         JMenu reportMenu = new JMenu("Reports");
         reportMenu.setFont(reportMenu.getFont().deriveFont(Font.BOLD, 14f));
         reportMenu.setForeground(new Color(0, 102, 204));
-        reportMenu.setOpaque(true);
-        reportMenu.setBackground(new Color(245, 245, 245));
 
-        JMenuItem topN = createMenuItem("Top N Blocks", e -> fetchTopNBlocks());
-        topN.setIcon(UIManager.getIcon("OptionPane.informationIcon"));
-        JMenuItem topOff = createMenuItem("Top N Offenses", e -> fetchTopNOffenses());
-        topOff.setIcon(UIManager.getIcon("OptionPane.warningIcon"));
-        JMenuItem avgDur = createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration());
-        avgDur.setIcon(UIManager.getIcon("OptionPane.questionIcon"));
-
-        reportMenu.add(topN);
-        reportMenu.add(topOff);
-        reportMenu.add(avgDur);
+        reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
+        reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
+        reportMenu.add(createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration()));
         menuBar.add(reportMenu);
         setJMenuBar(menuBar);
 
@@ -87,8 +79,6 @@ class MainFrame extends JFrame {
         JMenuItem item = new JMenuItem(title);
         item.addActionListener(action);
         item.setFont(item.getFont().deriveFont(12f));
-        item.setForeground(new Color(25, 25, 112));
-        item.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         return item;
     }
 
@@ -155,6 +145,7 @@ class MainFrame extends JFrame {
             "WHERE 1=1"
         );
         List<Object> params = new ArrayList<>();
+
         if (crit.getFromDate() != null) {
             sb.append(" AND f.report_dt >= ?");
             params.add(new Timestamp(crit.getFromDate().getTime()));
@@ -163,23 +154,23 @@ class MainFrame extends JFrame {
             sb.append(" AND f.report_dt <= ?");
             params.add(new Timestamp(crit.getToDate().getTime()));
         }
-        if (!"All".equals(crit.getShift())) {
-            sb.append(" AND s.shift_code = ?");
-            params.add(crit.getShift());
-        }
-        if (!"All".equals(crit.getMethod())) {
-            sb.append(" AND m.method_code = ?");
-            params.add(crit.getMethod());
-        }
-        if (!"All".equals(crit.getOffense())) {
-            sb.append(" AND o.offense_code = ?");
-            params.add(crit.getOffense());
-        }
-        if (!"All".equals(crit.getBlock())) {
-            sb.append(" AND b.block = ?");
-            params.add(crit.getBlock());
-        }
+
+        applyMultiFilter(sb, params, crit.getShifts(), "s.shift_code");
+        applyMultiFilter(sb, params, crit.getMethods(), "m.method_code");
+        applyMultiFilter(sb, params, crit.getOffenses(), "o.offense_code");
+        applyMultiFilter(sb, params, crit.getBlocks(), "b.block");
+
         performSearch(sb.toString(), params, true);
+    }
+
+    private void applyMultiFilter(StringBuilder sb, List<Object> params,
+                                  List<String> values, String columnRef) {
+        if (values == null || values.isEmpty() || (values.size() == 1 && "All".equals(values.get(0)))) {
+            return;
+        }
+        String placeholders = values.stream().map(v -> "?").collect(Collectors.joining(","));
+        sb.append(" AND ").append(columnRef).append(" IN (").append(placeholders).append(")");
+        params.addAll(values);
     }
 
     private void fetchTopNBlocks() {
@@ -216,7 +207,11 @@ class MainFrame extends JFrame {
 
 class FilterPanel extends JPanel {
     private final JSpinner fromDateSpinner, toDateSpinner;
-    private final JComboBox<String> shiftCombo, methodCombo, offenseCombo, blockCombo;
+    private final JButton shiftButton, methodButton, offenseButton, blockButton;
+    private List<String> selectedShifts = new ArrayList<>(Collections.singletonList("All"));
+    private List<String> selectedMethods = new ArrayList<>(Collections.singletonList("All"));
+    private List<String> selectedOffenses = new ArrayList<>(Collections.singletonList("All"));
+    private List<String> selectedBlocks = new ArrayList<>(Collections.singletonList("All"));
     private final JButton searchButton, clearButton;
 
     public FilterPanel() {
@@ -225,10 +220,11 @@ class FilterPanel extends JPanel {
 
         fromDateSpinner = createDateSpinner("From:");
         toDateSpinner = createDateSpinner("To:");
-        shiftCombo = createLookupCombo("Shift:", "dim_shift", "shift_code");
-        methodCombo = createLookupCombo("Method:", "dim_method", "method_code");
-        offenseCombo = createLookupCombo("Offense:", "dim_offense", "offense_code");
-        blockCombo = createLookupCombo("Block:", "dim_block", "block");
+
+        shiftButton = createMultiSelectButton("Shift", "dim_shift", "shift_code", selectedShifts);
+        methodButton = createMultiSelectButton("Method", "dim_method", "method_code", selectedMethods);
+        offenseButton = createMultiSelectButton("Offense", "dim_offense", "offense_code", selectedOffenses);
+        blockButton = createMultiSelectButton("Block", "dim_block", "block", selectedBlocks);
 
         searchButton = new JButton("Search");
         clearButton = new JButton("Clear");
@@ -256,16 +252,11 @@ class FilterPanel extends JPanel {
         return new FilterCriteria(
             (Date) fromDateSpinner.getValue(),
             (Date) toDateSpinner.getValue(),
-            (String) shiftCombo.getSelectedItem(),
-            (String) methodCombo.getSelectedItem(),
-            (String) offenseCombo.getSelectedItem(),
-            (String) blockCombo.getSelectedItem()
+            selectedShifts,
+            selectedMethods,
+            selectedOffenses,
+            selectedBlocks
         );
-    }
-
-    public int promptForN(String label) {
-        String input = JOptionPane.showInputDialog(this, "Enter top N " + label + ":", "5");
-        try { return Integer.parseInt(input.trim()); } catch (Exception e) { return -1; }
     }
 
     private void resetFilters() {
@@ -273,10 +264,62 @@ class FilterPanel extends JPanel {
         toDateSpinner.setValue(cal.getTime());
         cal.add(Calendar.DAY_OF_MONTH, -7);
         fromDateSpinner.setValue(cal.getTime());
-        shiftCombo.setSelectedIndex(0);
-        methodCombo.setSelectedIndex(0);
-        offenseCombo.setSelectedIndex(0);
-        blockCombo.setSelectedIndex(0);
+
+        selectedShifts = new ArrayList<>(Collections.singletonList("All"));
+        selectedMethods = new ArrayList<>(Collections.singletonList("All"));
+        selectedOffenses = new ArrayList<>(Collections.singletonList("All"));
+        selectedBlocks = new ArrayList<>(Collections.singletonList("All"));
+
+        shiftButton.setText("Shift: All");
+        methodButton.setText("Method: All");
+        offenseButton.setText("Offense: All");
+        blockButton.setText("Block: All");
+    }
+
+    private JButton createMultiSelectButton(String label, String table, String column, List<String> selectionList) {
+        JButton button = new JButton(label + ": All");
+        button.addActionListener(e -> {
+            JDialog dialog = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Select " + label, true);
+            dialog.setLayout(new BorderLayout());
+            JPanel checkPanel = new JPanel();
+            checkPanel.setLayout(new BoxLayout(checkPanel, BoxLayout.Y_AXIS));
+            List<JCheckBox> checkBoxes = new ArrayList<>();
+            try (Connection conn = DBConnector.getConnection();
+                 Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(String.format("SELECT %s FROM %s ORDER BY %s", column, table, column))) {
+                while (rs.next()) {
+                    String val = rs.getString(1);
+                    JCheckBox cb = new JCheckBox(val, selectionList.contains(val));
+                    checkBoxes.add(cb);
+                    checkPanel.add(cb);
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+            JScrollPane scroll = new JScrollPane(checkPanel);
+            scroll.setPreferredSize(new Dimension(200, 300));
+            dialog.add(scroll, BorderLayout.CENTER);
+
+            JPanel south = new JPanel();
+            JButton ok = new JButton("OK");
+            ok.addActionListener(ae -> {
+                selectionList.clear();
+                for (JCheckBox cb : checkBoxes) {
+                    if (cb.isSelected()) selectionList.add(cb.getText());
+                }
+                if (selectionList.isEmpty()) selectionList.add("All");
+                button.setText(label + ": " + (selectionList.contains("All") ? "All" : selectionList.size() + " selected"));
+                dialog.dispose();
+            });
+            south.add(ok);
+            dialog.add(south, BorderLayout.SOUTH);
+
+            dialog.pack();
+            dialog.setLocationRelativeTo(this);
+            dialog.setVisible(true);
+        });
+        add(button);
+        return button;
     }
 
     private JSpinner createDateSpinner(String label) {
@@ -288,20 +331,13 @@ class FilterPanel extends JPanel {
         return spinner;
     }
 
-    private JComboBox<String> createLookupCombo(String label, String table, String column) {
-        add(new JLabel(label));
-        List<String> items = new ArrayList<>();
-        items.add("All");
-        String sql = String.format("SELECT %s FROM %s ORDER BY %s", column, table, column);
-        try (Connection conn = DBConnector.getConnection();
-             Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery(sql)) {
-            while (rs.next()) items.add(rs.getString(1));
-        } catch (Exception ignored) {}
-        JComboBox<String> combo = new JComboBox<>(items.toArray(new String[0]));
-        combo.setToolTipText(label + " (All for no filter)");
-        add(combo);
-        return combo;
+    public int promptForN(String label) {
+        String input = JOptionPane.showInputDialog(this, "Enter top N " + label + ":", "5");
+        try {
+            return Integer.parseInt(input.trim());
+        } catch (Exception e) {
+            return -1;
+        }
     }
 }
 
@@ -327,23 +363,25 @@ class ResultsPanel extends JPanel {
 
 class FilterCriteria {
     private final Date fromDate, toDate;
-    private final String shift, method, offense, block;
+    private final List<String> shifts, methods, offenses, blocks;
 
-    public FilterCriteria(Date fromDate, Date toDate, String shift, String method, String offense, String block) {
+    public FilterCriteria(Date fromDate, Date toDate,
+                          List<String> shifts, List<String> methods,
+                          List<String> offenses, List<String> blocks) {
         this.fromDate = fromDate;
         this.toDate = toDate;
-        this.shift = shift;
-        this.method = method;
-        this.offense = offense;
-        this.block = block;
+        this.shifts = shifts;
+        this.methods = methods;
+        this.offenses = offenses;
+        this.blocks = blocks;
     }
 
     public Date getFromDate() { return fromDate; }
     public Date getToDate() { return toDate; }
-    public String getShift() { return shift; }
-    public String getMethod() { return method; }
-    public String getOffense() { return offense; }
-    public String getBlock() { return block; }
+    public List<String> getShifts() { return shifts; }
+    public List<String> getMethods() { return methods; }
+    public List<String> getOffenses() { return offenses; }
+    public List<String> getBlocks() { return blocks; }
 }
 
 class DBUtil {

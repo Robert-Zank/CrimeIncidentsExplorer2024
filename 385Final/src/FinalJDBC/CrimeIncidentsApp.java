@@ -2,6 +2,8 @@ package FinalJDBC;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
+
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.io.FileInputStream;
@@ -26,16 +28,27 @@ public class CrimeIncidentsApp {
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             try {
-                // Use system look-and-feel for native appearance
-                UIManager.setLookAndFeel(
-                    UIManager.getSystemLookAndFeelClassName()
-                );
-            } catch (Exception ignored) {
-                // If setting L&F fails, continue with default
-            }
+                // 1) Set Nimbus if available
+                for (UIManager.LookAndFeelInfo info : UIManager.getInstalledLookAndFeels()) {
+                    if ("Nimbus".equals(info.getName())) {
+                        UIManager.setLookAndFeel(info.getClassName());
+                        break;
+                    }
+                }
+                // 2) Tweak Nimbus palette
+                UIManager.put("control",          new Color(60, 63, 65));
+                UIManager.put("info",             new Color(60, 63, 65));
+                UIManager.put("nimbusBase",       new Color(18, 30, 49));
+                UIManager.put("nimbusBlueGrey",   new Color(50, 50, 50));
+                UIManager.put("nimbusLightBackground", new Color(43, 43, 43));
+                UIManager.put("text",             new Color(230, 230, 230));
+                UIManager.put("nimbusSelectionBackground", new Color(104, 93, 156));
+                UIManager.put("nimbusSelectedText",       new Color(255, 255, 255));
+            } catch (Exception ignored) {}
             new MainFrame().initUI();
         });
     }
+
 }
 
 /**
@@ -56,23 +69,28 @@ class MainFrame extends JFrame {
      */
     public void initUI() {
         setDefaultCloseOperation(EXIT_ON_CLOSE);
-        setLayout(new BorderLayout(5, 5));
+        setLayout(new BorderLayout(5,5));
 
-        // Menu bar
+        // Apply a dark bg to the whole window
+        getContentPane().setBackground(new Color(45, 45, 45));
+
         setJMenuBar(createMenuBar());
 
-        // Search filter controls at top
         filterPanel = new FilterPanel();
+        filterPanel.setBackground(new Color(60, 63, 65));  // dark grey
         filterPanel.addSearchListener(e -> onSearch());
         add(filterPanel, BorderLayout.NORTH);
 
-        // Results table in center
         resultsPanel = new ResultsPanel();
+        // give the table area a matching bg
+        resultsPanel.getScrollPane().getViewport().setBackground(new Color(43, 43, 43));
         add(resultsPanel.getScrollPane(), BorderLayout.CENTER);
 
-        // Status bar with progress indicator at bottom
+        // Status bar styling
         JPanel statusPanel = new JPanel(new BorderLayout());
+        statusPanel.setBackground(new Color(60, 63, 65));
         statusLabel = new JLabel("Ready");
+        statusLabel.setForeground(Color.LIGHT_GRAY);
         progressBar = new JProgressBar();
         progressBar.setVisible(false);
         statusPanel.add(statusLabel, BorderLayout.WEST);
@@ -80,9 +98,10 @@ class MainFrame extends JFrame {
         add(statusPanel, BorderLayout.SOUTH);
 
         setSize(1000, 600);
-        setLocationRelativeTo(null); // Center window
+        setLocationRelativeTo(null);
         setVisible(true);
     }
+
 
     /**
      * Creates the application menu bar with report and history menus.
@@ -92,6 +111,7 @@ class MainFrame extends JFrame {
 
         // Reports menu
         JMenu reportMenu = new JMenu("Reports");
+        reportMenu.setForeground(Color.WHITE);
         reportMenu.add(createMenuItem("Top N Blocks", e -> fetchTopNBlocks()));
         reportMenu.add(createMenuItem("Top N Offenses", e -> fetchTopNOffenses()));
         reportMenu.add(createMenuItem("Avg Duration by Offense", e -> fetchAvgDuration()));
@@ -100,6 +120,7 @@ class MainFrame extends JFrame {
 
         // History menu
         JMenu historyMenu = new JMenu("History");
+        historyMenu.setForeground(Color.WHITE);
         historyMenu.add(createMenuItem("View Query History", e -> fetchQueryHistory()));
         menuBar.add(historyMenu);
 
@@ -376,6 +397,12 @@ class FilterPanel extends JPanel {
      * Constructs filter inputs: two date spinners and four multi-select buttons.
      */
     public FilterPanel() {
+        setBackground(new Color(60, 63, 65));
+        setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createLineBorder(new Color(78,93,148)),
+            "Filters", 0, 0, null, Color.LIGHT_GRAY
+        ));
+        
         setBorder(BorderFactory.createTitledBorder("Filters"));
         setLayout(new FlowLayout(FlowLayout.LEADING, 8, 8));
 
@@ -389,6 +416,14 @@ class FilterPanel extends JPanel {
 
         searchButton = new JButton("Search");
         clearButton = new JButton("Clear");
+        
+        // Tinted buttons
+        searchButton.setBackground(new Color(77, 150, 255));
+        searchButton.setForeground(Color.WHITE);
+        searchButton.setFocusPainted(false);
+        clearButton.setBackground(new Color(200, 77, 255));
+        clearButton.setForeground(Color.WHITE);
+        clearButton.setFocusPainted(false);
 
         // Initialize default date range: last 7 days
         Calendar cal = Calendar.getInstance();
@@ -536,6 +571,19 @@ class ResultsPanel extends JPanel {
         setLayout(new BorderLayout());
         table = new JTable();
         table.setAutoCreateRowSorter(true);
+
+        // Modern table styling
+        table.setShowGrid(false);
+        table.setRowHeight(24);
+        table.setSelectionBackground(new Color(104, 93, 156));
+        table.setSelectionForeground(Color.WHITE);
+        table.setFillsViewportHeight(true);
+
+        JTableHeader hdr = table.getTableHeader();
+        hdr.setBackground(new Color(78, 93, 148));
+        hdr.setForeground(Color.WHITE);
+        hdr.setReorderingAllowed(false);
+
         scrollPane = new JScrollPane(table);
     }
 

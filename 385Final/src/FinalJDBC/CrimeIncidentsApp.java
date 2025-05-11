@@ -25,6 +25,39 @@ import org.jfree.chart.JFreeChart;
 import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.data.category.DefaultCategoryDataset;
 
+/*
+ * Name: Robert Zank
+ * Date: May 11, 2025
+ * Course: CSE 385
+ * Project Title: Crime Incidents Explorer
+ * 
+ * Description:
+ * This Java application provides a GUI-based tool for exploring and analyzing crime incident data
+ * stored in a MySQL database. It supports searching and filtering incidents by date, shift, method, 
+ * offense type, and location block. Users can view statistical summaries including:
+ *   - Top N blocks by incident count
+ *   - Top N offenses
+ *   - Average incident duration per offense
+ *   - Monthly trends visualized using line charts
+ * 
+ * Features:
+ * - Custom date range and multi-select filters
+ * - SQL query execution with query history logging
+ * - Data displayed in a sortable JTable with dynamic text wrapping
+ * - Charts created using JFreeChart library
+ * - Nimbus look-and-feel with a custom dark UI theme
+ * 
+ * External Libraries:
+ * - JFreeChart (used for generating visual charts)
+ * - MySQL Connector/J (used for database interaction)
+ * 
+ * Instructions:
+ * - Ensure `db.properties` file is configured correctly with MySQL connection settings.
+ * - Required JARs (JFreeChart and MySQL Connector/J) must be on the classpath.
+ * - Launch the application via the `main` method in `CrimeIncidentsApp`.
+ */
+
+
 /**
  * Entry point for the Crime Incidents Explorer application. Sets up the system
  * look-and-feel and initializes the main frame UI.

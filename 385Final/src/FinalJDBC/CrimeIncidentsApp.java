@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Date;
 
 // JFreeChart imports (ensure jars on classpath)
+// Download here: https://sourceforge.net/projects/jfreechart/
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
